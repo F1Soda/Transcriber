@@ -184,7 +184,7 @@ fabric.properties
 # idea folder, uncomment if you don't need it
 # .idea
 
-Audio/RawVideos
-Audio/ProcessedVideos
+Audio/RawAudios
+Audio/ProcessedAudios
 .wav
 .mp3

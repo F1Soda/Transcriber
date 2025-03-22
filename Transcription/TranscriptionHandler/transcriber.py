@@ -1,4 +1,5 @@
 ﻿import os
+import re
 import torch
 import soundfile as sf
 from transformers import WhisperForConditionalGeneration, WhisperProcessor, pipeline
@@ -41,10 +42,8 @@ class Transcriber:
 
     @staticmethod
     def speech_to_text(chunks_folder: str, output_file: str = None):
-        chunk_files = sorted([
-            f for f in os.listdir(chunks_folder)
-            if f.endswith('.wav') and 'part' in f
-        ])
+        chunk_files = {int(re.search(r'part(\d+)', os.path.basename(f)).group(1)): f for f in os.listdir(chunks_folder)}
+        chunk_files = [value for key, value in sorted(chunk_files.items())]
 
         # Output file path
         if output_file:
@@ -52,32 +51,43 @@ class Transcriber:
         else:
             output_path = os.path.join(Transcriber.save_dir, os.path.basename(chunks_folder)) + '.txt'
 
+
         # Transcribe and save
         with open(output_path, "w", encoding="utf-8") as out_file:
             for idx, filename in enumerate(chunk_files):
                 audio_path = os.path.join(chunks_folder, filename)
+
+                correct_idx = int(re.search(r'part(\d+)', os.path.basename(filename)).group(1))
+
                 print(f"\nProcessing: {filename}")
 
                 waveform, sample_rate = sf.read(audio_path)
                 if sample_rate != 16000:
                     raise ValueError(f"Whisper требует 16kHz, но у файла {sample_rate}Hz. Переконвертируйте!")
 
-                time_offset = idx * Convertor.chunk_duration
+                time_offset = correct_idx * Convertor.chunk_duration
 
                 asr = Transcriber.asr_pipeline(
                     waveform,
                     generate_kwargs={"language": "russian"},
                     return_timestamps="sentence"
                 )
-
-                # Write to file
                 for chunk in asr["chunks"]:
-                    if "text" not in chunk or "timestamp" not in chunk:
-                        continue  # skip malformed entries
-                    timestamp_sec = chunk["timestamp"][0] + time_offset
+                    timestamp = chunk.get("timestamp")
+                    text = chunk.get("text", "").strip()
+
+                    if not text:
+                        continue
+                    if timestamp is None or timestamp[0] is None:
+                        timestamp = [0]
+
+                    timestamp_sec = timestamp[0] + time_offset
                     minutes = int(timestamp_sec // 60)
                     seconds = int(timestamp_sec % 60)
                     timestamp_str = f"[{minutes:02}:{seconds:02}]"
-                    out_file.write(f"{timestamp_str} {chunk['text'].strip()}\n")
+                    chunk_number = '{:>3}'.format(idx)
+                    res = f"{chunk_number} {timestamp_str} {text}\n"
+                    print(res, end="")
+                    out_file.write(res)
 
         print(f"Transcript saved to: {output_path}")
