@@ -1,3 +1,5 @@
 ﻿pydub~=0.25.1
 ffmpeg~=1.4
 torch~=2.6.0
+denoiser~=0.1.5
+pytubefix~=8.12.2

@@ -2,8 +2,8 @@ from pydub import AudioSegment, effects
 import torch
 from denoiser import pretrained
 
-filepath = "castdev/Максим кастдев.mp3"
-out_filepath = "castdev/Максим кастдев_mono.mp3"
+filepath = "D:/PycharmProjects/Findex/RawVideos/1.mp3"
+out_filepath = "D:/PycharmProjects/Findex/ProcessedVideos/1.mp3"
 
 audio = AudioSegment.from_file(filepath)
 audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
