@@ -1,4 +1,5 @@
 ﻿import math
+import numpy as np
 import os
 import re
 import torch
@@ -36,8 +37,8 @@ class Transcriber:
         tokenizer=processor.tokenizer,
         feature_extractor=processor.feature_extractor,
         chunk_length_s=Preprocessor.chunk_duration,
-        stride_length_s=0,
-        batch_size=8,
+        stride_length_s=5,
+        batch_size=16,
         torch_dtype=torch_dtype
     )
     print("pipeline is ready")
@@ -76,26 +77,33 @@ class Transcriber:
             for line in lines:
                 start, end = line.split()
                 speech_timestamps.append({'start': float(start), 'end': float(end)})
+        speech_timestamps = speech_timestamps[70:100]
+        # speech_timestamps = [{'start': 1106.2, 'end': 1116.0}, {'start': 1117.1, 'end': 1123.5}]
+        padding = 0.8  # seconds of padding before and after speech
 
         waveforms = []
-        with sf.SoundFile('D:/PycharmProjects/Findex/merged10m.wav') as f:
-            for pair in speech_timestamps:
-                start_time = pair['start']
-                end_time = pair['end']
 
-                sample_rate = f.samplerate
+        with sf.SoundFile('D:/PycharmProjects/Findex/merged10m.wav') as f:
+            sample_rate = f.samplerate
+            total_frames = len(f)
+
+            for pair in speech_timestamps:
+                start_time = max(pair['start'] - padding, 0)
+                end_time = pair['end'] # min(pair['end'] + padding, total_frames / sample_rate)
+
                 start_frame = int(start_time * sample_rate)
                 end_frame = int(end_time * sample_rate)
 
                 f.seek(start_frame)
                 frames_to_read = end_frame - start_frame
                 waveform = f.read(frames_to_read)
+                silence = np.zeros(int(sample_rate * 1.0))  # 1 second of silence
+                waveform = np.concatenate([silence, waveform, silence])
                 waveforms.append(waveform)
 
         results = Transcriber.asr_pipeline(
             waveforms,
             generate_kwargs={"language": "russian"},
-            return_timestamps="sentence"
         )
 
         # Transcribe and save
@@ -112,23 +120,17 @@ class Transcriber:
                 #    raise ValueError(f"Whisper требует 16kHz, но у файла {sample_rate}Hz. Переконвертируйте!")
 
                 time_offset = pair['start']
+                text = asr.get("text")
+                if not text:
+                    continue
 
-                for chunk in asr["chunks"]:
-                    timestamp = chunk.get("timestamp")
-                    text = chunk.get("text", "").strip()
-
-                    if not text:
-                        continue
-                    if timestamp is None or timestamp[0] is None:
-                        timestamp = [0]
-
-                    timestamp_sec = timestamp[0] + time_offset
-                    minutes = int(timestamp_sec // 60)
-                    seconds = int(timestamp_sec % 60)
-                    timestamp_str = f"[{minutes:02}:{seconds:02}]"
-                    chunk_number = '{:>3}'.format(idx)
-                    res = f"{chunk_number} {timestamp_str} {text}\n"
-                    print(res, end="")
-                    out_file.write(res)
+                timestamp_sec = time_offset
+                minutes = int(timestamp_sec // 60)
+                seconds = int(timestamp_sec % 60)
+                timestamp_str = f"[{minutes:02}:{seconds:02}]"
+                chunk_number = '{:>3}'.format(idx)
+                res = f"{chunk_number} {timestamp_str} {text}\n"
+                print(res, end="")
+                out_file.write(res)
 
         print(f"Transcript saved to: {output_path}")

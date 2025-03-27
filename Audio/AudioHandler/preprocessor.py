@@ -9,6 +9,7 @@ from pathlib import Path
 import time
 import threading
 import traceback
+import math
 
 lock = threading.Lock()
 
@@ -35,13 +36,13 @@ class Preprocessor:
 
         Preprocessor._audio = AudioSegment.from_file(file_path)
 
-        count_chunks = 20 # math.ceil(duration_sec / Convertor.chunk_duration)
+        count_chunks = math.ceil(duration_sec / Preprocessor.chunk_duration)
         chunk_args = [(i, out_dirpath, file_path) for i in range(count_chunks)]
 
         start_time = time.time()
 
         if use_threading:
-            with ThreadPoolExecutor(max_workers=12) as executor:
+            with ThreadPoolExecutor(max_workers=10) as executor:
                 futures = [executor.submit(Preprocessor.process_chunk, *args) for args in chunk_args]
                 for future in futures:
                     future.result()
@@ -83,7 +84,7 @@ class Preprocessor:
             chunk = chunk.set_frame_rate(Preprocessor.sample_rate).set_channels(Preprocessor.channels).set_sample_width(
                 Preprocessor.sample_width)
 
-            chunk = Preprocessor._normalize_audio(chunk, target_dBFS=-40)
+            chunk = Preprocessor._normalize_audio(chunk, target_dBFS=-30)
 
             chunk = effects.compress_dynamic_range(
                 chunk,

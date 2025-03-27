@@ -58,7 +58,7 @@ for i, ts in enumerate(speech_timestamps):
     speech_audio += segment
     print(f"Added speech segment {i}: {ts['start']}s - {ts['end']}s")
 
-output_path = 'D:/PycharmProjects/Findex/no_silence_v2.wav'
+output_path = 'D:/PycharmProjects/Findex/no_silence_v3.wav'
 #
 # # --- Step 5: Export new audio without silence ---
 speech_audio.export(output_path, format='wav')
