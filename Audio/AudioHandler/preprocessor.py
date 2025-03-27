@@ -6,14 +6,13 @@ from concurrent.futures import ThreadPoolExecutor
 from pydub.silence import split_on_silence
 import os
 from pathlib import Path
-import math
 import time
 import threading
 import traceback
 
 lock = threading.Lock()
 
-class Convertor:
+class Preprocessor:
     save_folder = 'Audio/ProcessedAudios'
     den = pretrained.dns64().eval()
     chunk_duration = 30
@@ -28,39 +27,46 @@ class Convertor:
         file_name = os.path.basename(file_path)
 
         if out_dirpath is None:
-            out_dirpath = os.path.join(Convertor.save_folder, file_name.split('.')[0])
+            out_dirpath = os.path.join(Preprocessor.save_folder, file_name.split('.')[0])
         Path(out_dirpath).mkdir(parents=True, exist_ok=False)
 
         info = mediainfo(file_path)
         duration_sec = float(info['duration'])
 
-        Convertor._audio = AudioSegment.from_file(file_path)
+        Preprocessor._audio = AudioSegment.from_file(file_path)
 
-        count_chunks = math.ceil(duration_sec / Convertor.chunk_duration)
+        count_chunks = 20 # math.ceil(duration_sec / Convertor.chunk_duration)
         chunk_args = [(i, out_dirpath, file_path) for i in range(count_chunks)]
 
         start_time = time.time()
 
         if use_threading:
             with ThreadPoolExecutor(max_workers=12) as executor:
-                futures = [executor.submit(Convertor.process_chunk, *args) for args in chunk_args]
+                futures = [executor.submit(Preprocessor.process_chunk, *args) for args in chunk_args]
                 for future in futures:
                     future.result()
         else:
             for i in range(0, count_chunks):
-                Convertor.process_chunk(*(chunk_args[i]))
+                Preprocessor.process_chunk(*(chunk_args[i]))
 
         print(f"Done! Time: {time.time() - start_time}")
 
-        Convertor._audio = None
+        Preprocessor._audio = None
 
     @staticmethod
-    def remove_long_silences(audio_segment, silence_thresh=-20, min_silence_len=2000):
+    def remove_long_silences(audio_segment, silence_thresh=-45, min_silence_len=2000):
+        '''
+        not use it
+        :param audio_segment:
+        :param silence_thresh:
+        :param min_silence_len:
+        :return:
+        '''
         audio_chunks = split_on_silence(
             audio_segment,
-            min_silence_len=2000,
-            silence_thresh=-45,
-            keep_silence=500
+            min_silence_len=min_silence_len,
+            silence_thresh=silence_thresh,
+            keep_silence=1000
         )
 
         audio_processed = sum(audio_chunks)
@@ -70,59 +76,42 @@ class Convertor:
     def process_chunk(index, output_dir: str, file_path: str):
         try:
             start_time = time.time()
-            chunk = Convertor._load_partial(start_second=index * Convertor.chunk_duration,
-                                            duration=Convertor.chunk_duration)
+            chunk = Preprocessor._load_partial(start_second=index * Preprocessor.chunk_duration,
+                                               duration=Preprocessor.chunk_duration)
 
 
-            chunk = Convertor.remove_long_silences(chunk)
-            if chunk.duration_seconds < 2:
-                with lock:
-                    print(f"Processed chunk {index}. Skipping because {chunk.duration_seconds} < 2")
-                return
+            chunk = chunk.set_frame_rate(Preprocessor.sample_rate).set_channels(Preprocessor.channels).set_sample_width(
+                Preprocessor.sample_width)
 
-            #end_time = time.time()
-            #with lock:
-            #    print(f"\t Duration 0: {end_time - start_time}")
+            chunk = Preprocessor._normalize_audio(chunk, target_dBFS=-40)
 
-            #start_time = end_time
-            chunk = chunk.set_frame_rate(Convertor.sample_rate).set_channels(Convertor.channels).set_sample_width(
-                Convertor.sample_width)
+            chunk = effects.compress_dynamic_range(
+                chunk,
+                threshold=-25.0,  # start compressing quieter sounds
+                ratio=3.0,        # gentle compression
+                attack=10.0,      # slightly slower to avoid "pumping"
+                release=100.0     # smooth fade-out of compression
+            )
 
-            chunk = Convertor._normalize_audio(chunk)
-            #end_time = time.time()
-            #with lock:
-            #    print(f"\t Duration 1: {end_time - start_time}")
-
-            #start_time = end_time
-            chunk = effects.compress_dynamic_range(chunk)
-            #end_time = time.time()
-            #with lock:
-            #    print(f"\t Duration 2: {end_time - start_time}")
-
-            #start_time = end_time
             samples = torch.tensor(chunk.get_array_of_samples(), dtype=torch.float32) / 32768.0
             samples = samples.unsqueeze(0)
 
             with torch.no_grad():
-                denoised = Convertor.den(samples)
+                denoised = Preprocessor.den(samples)
 
-            #end_time = time.time()
-            #with lock:
-            #    print(f"\t Duration 3: {end_time - start_time}")
-
-            # start_time = end_time
             denoised = (denoised.squeeze().numpy() * 32768).astype("int16")
             audio = AudioSegment(
                 denoised.tobytes(),
-                frame_rate=Convertor.sample_rate,
-                sample_width=Convertor.sample_width,
-                channels=Convertor.channels
+                frame_rate=Preprocessor.sample_rate,
+                sample_width=Preprocessor.sample_width,
+                channels=Preprocessor.channels
             )
+
             filename = os.path.basename(file_path).split('.')[0] + f"-part{index}" + '.wav'
             with lock:
                 audio.export(os.path.join(output_dir, filename), format="wav")
             end_time = time.time()
-            # print(f"\t Duration 4: {end_time - start_time}")
+
             with lock:
                 print(f"Processed chunk {index}. Duration: {end_time - start_time}")
         except Exception as e:
@@ -142,7 +131,7 @@ class Convertor:
         end_ms = start_ms + int(duration * 1000)
 
         with lock:
-            chunk = Convertor._audio[start_ms:end_ms]
+            chunk = Preprocessor._audio[start_ms:end_ms]
 
         expected_length = duration * 1000
         if len(chunk) < expected_length:
