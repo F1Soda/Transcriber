@@ -1,13 +1,16 @@
-﻿import math
-import numpy as np
+﻿import numpy as np
 import os
-import re
 import torch
 import soundfile as sf
+import time
 from transformers import WhisperForConditionalGeneration, WhisperProcessor, pipeline
 from Audio.AudioHandler.preprocessor import Preprocessor
 
 class Transcriber:
+    """
+    Class interface above whisper for getting transcription from preprocessed audio
+    """
+    # initialization
     torch_dtype = torch.bfloat16
     device = 'cpu'
     save_dir = 'Transcription/Lectures'
@@ -41,65 +44,16 @@ class Transcriber:
         batch_size=16,
         torch_dtype=torch_dtype
     )
-    print("pipeline is ready")
 
     @staticmethod
-    def speech_to_text(chunks_folder: str, output_file: str = None):
-        print(f"Run speech_to_text on folder {chunks_folder}")
-        chunk_files = {int(re.search(r'part(\d+)', os.path.basename(f)).group(1)): f for f in os.listdir(chunks_folder)}
-        chunk_files = [value for key, value in sorted(chunk_files.items())]
+    def speech_to_text(audio_path, speech_timestamps, output_path: str = None):
+        print(f"Run speech_to_text on {audio_path}")
+        start_time = time.time()
+        if not output_path:
+            filename = os.path.basename(os.path.dirname(audio_path))
+            output_path = os.path.join(Transcriber.save_dir, filename) + '.txt'
 
-        # Output file path
-        if output_file:
-            output_path = os.path.join(Transcriber.save_dir, output_file) + '.txt'
-        else:
-            output_path = os.path.join(Transcriber.save_dir, os.path.basename(chunks_folder)) + '.txt'
-
-        ITER_COUNT = 20
-
-        # for k in range(math.ceil(len(chunk_files) / ITER_COUNT)):
-        #     waveforms = []
-        #     filenames = []
-        #
-        #     for u in range(ITER_COUNT*k, min(ITER_COUNT*k + ITER_COUNT, len(chunk_files))):
-        #         fname = chunk_files[u]
-        #         path = os.path.join(chunks_folder, fname)
-        #         waveform, sample_rate = sf.read(path)
-        #
-        #         if sample_rate != 16000:
-        #             raise ValueError(f"Whisper требует 16kHz, но у файла {sample_rate}Hz. Переконвертируйте!")
-        #
-        #         waveforms.append(waveform)
-        #         filenames.append(fname)
-        speech_timestamps = []
-        with open('D:/PycharmProjects/Findex/Audio/Segments/20-02.txt', 'r') as file:
-            lines = file.readlines()
-            for line in lines:
-                start, end = line.split()
-                speech_timestamps.append({'start': float(start), 'end': float(end)})
-        speech_timestamps = speech_timestamps[70:100]
-        # speech_timestamps = [{'start': 1106.2, 'end': 1116.0}, {'start': 1117.1, 'end': 1123.5}]
-        padding = 0.8  # seconds of padding before and after speech
-
-        waveforms = []
-
-        with sf.SoundFile('D:/PycharmProjects/Findex/merged10m.wav') as f:
-            sample_rate = f.samplerate
-            total_frames = len(f)
-
-            for pair in speech_timestamps:
-                start_time = max(pair['start'] - padding, 0)
-                end_time = pair['end'] # min(pair['end'] + padding, total_frames / sample_rate)
-
-                start_frame = int(start_time * sample_rate)
-                end_frame = int(end_time * sample_rate)
-
-                f.seek(start_frame)
-                frames_to_read = end_frame - start_frame
-                waveform = f.read(frames_to_read)
-                silence = np.zeros(int(sample_rate * 1.0))  # 1 second of silence
-                waveform = np.concatenate([silence, waveform, silence])
-                waveforms.append(waveform)
+        waveforms, new_speech_timestamps = Transcriber._get_waveforms(audio_path, speech_timestamps)
 
         results = Transcriber.asr_pipeline(
             waveforms,
@@ -108,17 +62,7 @@ class Transcriber:
 
         # Transcribe and save
         with open(output_path, "w", encoding="utf-8") as out_file:
-            for idx, (asr, pair) in enumerate(zip(results,speech_timestamps)):
-                #audio_path = os.path.join(chunks_folder, filename)
-
-                #correct_idx = int(re.search(r'part(\d+)', os.path.basename(filename)).group(1))
-
-                #print(f"\nProcessing: {filename}")
-
-                #waveform, sample_rate = sf.read(audio_path)
-                #if sample_rate != 16000:
-                #    raise ValueError(f"Whisper требует 16kHz, но у файла {sample_rate}Hz. Переконвертируйте!")
-
+            for idx, (asr, pair) in enumerate(zip(results,new_speech_timestamps)):
                 time_offset = pair['start']
                 text = asr.get("text")
                 if not text:
@@ -133,4 +77,66 @@ class Transcriber:
                 print(res, end="")
                 out_file.write(res)
 
-        print(f"Transcript saved to: {output_path}")
+        print(f"Transcript saved to: {output_path}. Duration: {time.time() - start_time}")
+
+    @staticmethod
+    def _get_waveforms(audio_path, speech_timestamps):
+        padding = 0.8 # how much seconds add to start from origin audio to each chunk
+        max_duration = 30.0  # maximum length of concatenated waveform in seconds
+        silence_pad = 1.0  # seconds of silence before and after each chunk
+        silence_pad_in_one_chunk = 0.8  # seconds of silence before and after each chunk
+
+        combined_waveforms = []
+        combined_timestamps = []
+
+        with sf.SoundFile(audio_path) as f:
+            sample_rate = f.samplerate
+            chunk = []
+            chunk_duration = 0.0
+            chunk_start_index = None
+
+            for i, pair in enumerate(speech_timestamps):
+                start_time = max(pair['start'] - padding, 0)
+                end_time = pair['end']
+                duration = end_time - start_time
+
+                if chunk_duration + duration >= max_duration:
+                    if chunk:
+                        combined_waveform = np.concatenate(chunk)
+                        silence = np.zeros(int(sample_rate * silence_pad))
+                        combined_waveform = np.concatenate([silence, combined_waveform, silence])
+                        combined_waveforms.append(combined_waveform)
+
+                        combined_timestamps.append({
+                            'start': speech_timestamps[chunk_start_index]['start'],
+                            'end': speech_timestamps[i - 1]['end']
+                        })
+                        chunk = []
+                        chunk_duration = 0.0
+
+                # Read and pad the current segment
+                start_frame = int(start_time * sample_rate)
+                end_frame = int(end_time * sample_rate)
+
+                f.seek(start_frame)
+                waveform = f.read(end_frame - start_frame)
+
+                silence = np.zeros(int(sample_rate * silence_pad_in_one_chunk))
+                waveform = np.concatenate([silence, waveform, silence])
+
+                if not chunk:
+                    chunk_start_index = i
+
+                chunk.append(waveform)
+                chunk_duration += duration
+
+            # Handle the final chunk
+            if chunk:
+                combined_waveform = np.concatenate(chunk)
+                combined_waveforms.append(combined_waveform)
+                combined_timestamps.append({
+                    'start': speech_timestamps[chunk_start_index]['start'],
+                    'end': speech_timestamps[-1]['end']
+                })
+
+        return combined_waveforms, combined_timestamps

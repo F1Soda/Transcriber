@@ -3,17 +3,31 @@ from pydub.utils import mediainfo
 import torch
 from denoiser import pretrained
 from concurrent.futures import ThreadPoolExecutor
-from pydub.silence import split_on_silence
 import os
 from pathlib import Path
 import time
 import threading
 import traceback
 import math
+import re
+import shutil
 
 lock = threading.Lock()
 
 class Preprocessor:
+    """
+    Class for preparing audio for Whisper. Make follow:
+    1) slice big audio into 30 second chunks
+    2) for each chunk:
+        a) set sample rate to 16 kHz
+        b) set channels to 1
+        c) set sample width(bytes per sample)
+        d) normalizing
+        e) compress dynamic range
+        f) applying denoiser
+    3) save chunks into folder ProcessedAudios/audio_name/parts
+    4) merge chunks back
+    """
     save_folder = 'Audio/ProcessedAudios'
     den = pretrained.dns64().eval()
     chunk_duration = 30
@@ -23,7 +37,7 @@ class Preprocessor:
     _audio = None
 
     @staticmethod
-    def convert_with_denoiser(file_path: str, out_dirpath: str = None, use_threading: bool = True):
+    def convert_with_denoiser(file_path: str, out_dirpath: str = None, use_threading: bool = True, save_parts_after_merge: bool = False):
         print(f"start converting: {file_path}")
         file_name = os.path.basename(file_path)
 
@@ -31,16 +45,12 @@ class Preprocessor:
             out_dirpath = os.path.join(Preprocessor.save_folder, file_name.split('.')[0])
         Path(out_dirpath).mkdir(parents=True, exist_ok=False)
 
-        info = mediainfo(file_path)
-        duration_sec = float(info['duration'])
-
         Preprocessor._audio = AudioSegment.from_file(file_path)
-
+        duration_sec = float(mediainfo(file_path)['duration'])
         count_chunks = math.ceil(duration_sec / Preprocessor.chunk_duration)
         chunk_args = [(i, out_dirpath, file_path) for i in range(count_chunks)]
 
         start_time = time.time()
-
         if use_threading:
             with ThreadPoolExecutor(max_workers=10) as executor:
                 futures = [executor.submit(Preprocessor.process_chunk, *args) for args in chunk_args]
@@ -50,28 +60,37 @@ class Preprocessor:
             for i in range(0, count_chunks):
                 Preprocessor.process_chunk(*(chunk_args[i]))
 
-        print(f"Done! Time: {time.time() - start_time}")
+        merged_path = Preprocessor.merge(out_dirpath + '/parts', save_parts_after_merge)
 
+        print(f"Done! Time: {time.time() - start_time}")
         Preprocessor._audio = None
 
-    @staticmethod
-    def remove_long_silences(audio_segment, silence_thresh=-45, min_silence_len=2000):
-        '''
-        not use it
-        :param audio_segment:
-        :param silence_thresh:
-        :param min_silence_len:
-        :return:
-        '''
-        audio_chunks = split_on_silence(
-            audio_segment,
-            min_silence_len=min_silence_len,
-            silence_thresh=silence_thresh,
-            keep_silence=1000
-        )
+        return merged_path
 
-        audio_processed = sum(audio_chunks)
-        return audio_processed
+
+    @staticmethod
+    def merge(parts_dir: str, save_parts_after_merge):
+        combined = AudioSegment.empty()
+
+        chunk_files = {int(re.search(r'part(\d+)', os.path.basename(f)).group(1)): f for f in os.listdir(parts_dir)}
+        chunk_files = [value for key, value in sorted(chunk_files.items())]
+
+        for filename in chunk_files:
+            if filename.endswith('.wav'):
+                audio_path = os.path.join(parts_dir, filename)
+                audio = AudioSegment.from_file(audio_path)
+                # audio = audio.set_channels(1).set_frame_rate(16000)
+                combined += audio
+
+        save_path = os.path.dirname(parts_dir) + '/merged.wav'
+        combined.export(save_path, format="wav")
+
+        if save_parts_after_merge:
+            return save_path
+
+        shutil.rmtree(parts_dir)
+        return save_path
+
 
     @staticmethod
     def process_chunk(index, output_dir: str, file_path: str):
