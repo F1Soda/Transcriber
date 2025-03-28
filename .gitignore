@@ -184,7 +184,11 @@ fabric.properties
 # idea folder, uncomment if you don't need it
 # .idea
 
-#Audio/RawAudios
-#Audio/ProcessedAudios
+Audio/RawAudios
+Audio/ProcessedAudios
+Audio/Segments
+Transcription/Lectures
 .wav
 .mp3
+/.312venv/share/man/man1/ipython.1
+/.312venv/share/man/man1/isympy.1
