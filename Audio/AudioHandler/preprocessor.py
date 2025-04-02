@@ -11,6 +11,7 @@ import traceback
 import math
 import re
 import shutil
+from utils import make_path_abs
 
 lock = threading.Lock()
 
@@ -28,7 +29,7 @@ class Preprocessor:
     3) save chunks into folder ProcessedAudios/audio_name/parts
     4) merge chunks back
     """
-    save_folder = 'Audio/ProcessedAudios'
+    save_folder = make_path_abs('Audio/ProcessedAudios')
     den = pretrained.dns64().eval()
     chunk_duration = 30
     sample_rate = 16000
@@ -38,11 +39,18 @@ class Preprocessor:
 
     @staticmethod
     def convert_with_denoiser(file_path: str, out_dirpath: str = None, use_threading: bool = True, save_parts_after_merge: bool = False):
+        """
+        out_dirpath, file_path should have absolute path!
+        """
         print(f"start converting: {file_path}")
+        start_time = time.time()
         file_name = os.path.basename(file_path)
 
+        # out_dirpath should have absolute path!
         if out_dirpath is None:
-            out_dirpath = os.path.join(Preprocessor.save_folder, file_name.split('.')[0])
+            out_dirpath = os.path.join(Preprocessor.save_folder, os.path.splitext(file_name)[0])
+            out_dirpath = make_path_abs(out_dirpath)
+
         Path(out_dirpath).mkdir(parents=True, exist_ok=False)
 
         Preprocessor._audio = AudioSegment.from_file(file_path)
@@ -50,17 +58,17 @@ class Preprocessor:
         count_chunks = math.ceil(duration_sec / Preprocessor.chunk_duration)
         chunk_args = [(i, out_dirpath, file_path) for i in range(count_chunks)]
 
-        start_time = time.time()
+
         if use_threading:
             with ThreadPoolExecutor(max_workers=10) as executor:
-                futures = [executor.submit(Preprocessor.process_chunk, *args) for args in chunk_args]
+                futures = [executor.submit(Preprocessor._process_chunk, *args) for args in chunk_args]
                 for future in futures:
                     future.result()
         else:
             for i in range(0, count_chunks):
-                Preprocessor.process_chunk(*(chunk_args[i]))
+                Preprocessor._process_chunk(*(chunk_args[i]))
 
-        merged_path = Preprocessor.merge(out_dirpath + '/parts', save_parts_after_merge)
+        merged_path = Preprocessor.merge(os.path.join(out_dirpath, 'parts'), save_parts_after_merge)
 
         print(f"Done! Time: {time.time() - start_time}")
         Preprocessor._audio = None
@@ -70,6 +78,10 @@ class Preprocessor:
 
     @staticmethod
     def merge(parts_dir: str, save_parts_after_merge):
+        """
+        parts_dir should have absolute path!
+        """
+
         combined = AudioSegment.empty()
 
         chunk_files = {int(re.search(r'part(\d+)', os.path.basename(f)).group(1)): f for f in os.listdir(parts_dir)}
@@ -79,10 +91,9 @@ class Preprocessor:
             if filename.endswith('.wav'):
                 audio_path = os.path.join(parts_dir, filename)
                 audio = AudioSegment.from_file(audio_path)
-                # audio = audio.set_channels(1).set_frame_rate(16000)
                 combined += audio
 
-        save_path = os.path.dirname(parts_dir) + '/merged.wav'
+        save_path = os.path.join(os.path.dirname(parts_dir), 'processed.wav')
         combined.export(save_path, format="wav")
 
         if save_parts_after_merge:
@@ -93,7 +104,10 @@ class Preprocessor:
 
 
     @staticmethod
-    def process_chunk(index, output_dir: str, file_path: str):
+    def _process_chunk(index, output_dir: str, file_path: str):
+        """
+        output_dir, file_path should have absolute path!
+        """
         try:
             start_time = time.time()
             chunk = Preprocessor._load_partial(start_second=index * Preprocessor.chunk_duration,
@@ -127,9 +141,10 @@ class Preprocessor:
                 channels=Preprocessor.channels
             )
 
-            filename = os.path.basename(file_path).split('.')[0] + f"-part{index}" + '.wav'
+            filename = os.path.splitext(os.path.basename(file_path))[0] + f"-part{index}" + '.wav'
             with lock:
-                audio.export(os.path.join(output_dir, filename), format="wav")
+                save_path = os.path.join(os.path.join(output_dir, "parts"), filename)
+                audio.export(save_path, format="wav")
             end_time = time.time()
 
             with lock:

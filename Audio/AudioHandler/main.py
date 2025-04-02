@@ -7,6 +7,5 @@ def main(file_path):
 
 
 if __name__ == '__main__':
-    p = r'Audio/RawAudios/20-02.mp3'
+    p = r'Audio/RawAudios/15-12.mp3'
     main(p)
-    # Preprocessor.merge("Audio/ProcessedAudios/20-02/parts", True)

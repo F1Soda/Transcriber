@@ -3,6 +3,7 @@ from pydub import AudioSegment
 import torch
 from silero_vad import load_silero_vad, get_speech_timestamps
 from Audio.AudioHandler.preprocessor import Preprocessor
+from utils import make_path_abs
 
 class VAD:
     """
@@ -10,15 +11,16 @@ class VAD:
     """
     min_speech_duration_ms=1000
     min_silence_duration_ms=1000
-    save_folder = 'Audio/Segments'
+    save_folder = make_path_abs('Audio/Segments')
 
     @staticmethod
-    def get_voice_timestamps(filepath):
+    def get_voice_timestamps(file_path):
         """
         Using silero vad for extracting time stamps with voice
+        file_path should be absolute path
         """
         # loading
-        preprocessed_audio = AudioSegment.from_file(filepath)
+        preprocessed_audio = AudioSegment.from_file(file_path)
         samples = preprocessed_audio.get_array_of_samples()
         samples_tensor = torch.tensor(samples, dtype=torch.float32) / 32768.0  # Normalize 16-bit PCM
         samples_tensor = samples_tensor.unsqueeze(0)  # Add batch dimension: shape [1, num_samples]
@@ -31,8 +33,8 @@ class VAD:
                                                   min_silence_duration_ms=VAD.min_silence_duration_ms)
 
         # saving
-        filename = os.path.basename(filepath).split('.')[0]
-        output_txt_path = os.path.dirname(filepath) + f"{filename}.txt"
+        filename = os.path.splitext(os.path.basename(file_path))[0]
+        output_txt_path = os.path.join(VAD.save_folder, f"{filename}.txt")
         with open(output_txt_path, 'w') as file:
             for pair in speech_timestamps:
                 file.write(f"{pair['start']} {pair['end']}\n")
@@ -44,6 +46,7 @@ class VAD:
     def slice_by_segments_and_merge(segments_path, audiofile_path, output_path=None):
         """
         Slice audio by segments and then merge it. By default used for testing segmentation timestamps by silero vad
+        segments_path, audiofile_path should be absolute path
         """
         # loading timestamps
         speech_timestamps = VAD.load_speach_timestamps(segments_path)
@@ -62,13 +65,16 @@ class VAD:
 
         # saving
         if output_path is None:
-            file_name = os.path.basename(segments_path)
+            file_name = os.path.splitext(os.path.basename(segments_path))[0]
             output_path = Preprocessor.save_folder + f'/{file_name}/{file_name}_voice.wav'
 
         speech_audio.export(output_path, format='wav')
 
     @staticmethod
     def load_speach_timestamps(file_path):
+        """
+        file_path should be absolute path
+        """
         speech_timestamps = []
         with open(file_path, 'r') as file:
             lines = file.readlines()

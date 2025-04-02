@@ -5,6 +5,7 @@ import soundfile as sf
 import time
 from transformers import WhisperForConditionalGeneration, WhisperProcessor, pipeline
 from Audio.AudioHandler.preprocessor import Preprocessor
+from utils import make_path_abs
 
 class Transcriber:
     """
@@ -13,44 +14,65 @@ class Transcriber:
     # initialization
     torch_dtype = torch.bfloat16
     device = 'cpu'
-    save_dir = 'Transcription/Lectures'
+    save_dir = make_path_abs('Transcription/Lectures')
     asr_pipeline = None
+    whisper = None
+    processor = None
 
-    if torch.cuda.is_available():
-        device = 'cuda'
-    elif torch.backends.mps.is_available():
-        device = 'mps'
-        setattr(torch.distributed, "is_initialized", lambda: False)
-    print("using: " + device)
-    device = torch.device(device)
+    @staticmethod
+    def load(batch_size: int = 16):
+        """
+        batch_size: count of parts, that will be processed on GPU together. Change it for better performance
+        """
+        if torch.cuda.is_available():
+            Transcriber.device = 'cuda'
+        elif torch.backends.mps.is_available():
+            Transcriber.device = 'mps'
+            setattr(torch.distributed, "is_initialized", lambda: False)
+        Transcriber.device = torch.device(Transcriber.device)
 
-    model_id = "antony66/whisper-large-v3-russian"
-    whisper = WhisperForConditionalGeneration.from_pretrained(
-        model_id,
-        torch_dtype=torch_dtype,
-        use_safetensors=True,
-        device_map="auto"
-    )
-    processor = WhisperProcessor.from_pretrained(model_id)
-    print(f"Model {model_id} was loaded")
-    # Create ASR pipeline
-    asr_pipeline = pipeline(
-        "automatic-speech-recognition",
-        model=whisper,
-        tokenizer=processor.tokenizer,
-        feature_extractor=processor.feature_extractor,
-        chunk_length_s=Preprocessor.chunk_duration,
-        stride_length_s=5,
-        batch_size=16,
-        torch_dtype=torch_dtype
-    )
+        model_id = "antony66/whisper-large-v3-russian"
+        Transcriber.whisper = WhisperForConditionalGeneration.from_pretrained(
+            model_id,
+            torch_dtype=Transcriber.torch_dtype,
+            use_safetensors=True,
+            device_map="auto"
+        )
+        Transcriber.processor = WhisperProcessor.from_pretrained(model_id)
+        # Create ASR pipeline
+        Transcriber.asr_pipeline = pipeline(
+            "automatic-speech-recognition",
+            model=Transcriber.whisper,
+            tokenizer=Transcriber.processor.tokenizer,
+            feature_extractor=Transcriber.processor.feature_extractor,
+            chunk_length_s=Preprocessor.chunk_duration,
+            stride_length_s=5,
+            batch_size=batch_size,
+            torch_dtype=Transcriber.torch_dtype
+        )
+        print(f"Model {model_id} was loaded")
+
+    @staticmethod
+    def unload():
+        """
+        Unloads the model and pipeline to free memory.
+        """
+        print("Unloading Whisper model and ASR pipeline...")
+        # I'm not sure about unloading processor. Maybe I should save it, but now it's like this
+        Transcriber.asr_pipeline = None
+        Transcriber.processor = None
+        Transcriber.whisper = None
+        torch.cuda.empty_cache()
 
     @staticmethod
     def speech_to_text(audio_path, speech_timestamps, output_path: str = None):
+        """
+        audio_path, output_path should be absolute path
+        """
         print(f"Run speech_to_text on {audio_path}")
         start_time = time.time()
         if not output_path:
-            filename = os.path.basename(os.path.dirname(audio_path))
+            filename = os.path.splitext(os.path.basename(audio_path))[0]
             output_path = os.path.join(Transcriber.save_dir, filename) + '.txt'
 
         waveforms, new_speech_timestamps = Transcriber._get_waveforms(audio_path, speech_timestamps)
@@ -81,6 +103,9 @@ class Transcriber:
 
     @staticmethod
     def _get_waveforms(audio_path, speech_timestamps):
+        """
+        audio_path should be absolute path
+        """
         padding = 0.8 # how much seconds add to start from origin audio to each chunk
         max_duration = 30.0  # maximum length of concatenated waveform in seconds
         silence_pad = 1.0  # seconds of silence before and after each chunk

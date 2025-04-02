@@ -6,6 +6,6 @@ def main(chunks_folder, speech_timestamps):
 
 
 if __name__ == '__main__':
-    dir_chunks = r'Audio/ProcessedAudios/20-02/merged.wav'
-    speech_timestamps = VAD.load_speach_timestamps('Audio/Segments/20-02.txt')
+    dir_chunks = r'Audio/ProcessedAudios/15-12/merged.wav'
+    speech_timestamps = VAD.get_voice_timestamps(dir_chunks)
     main(dir_chunks, speech_timestamps)
