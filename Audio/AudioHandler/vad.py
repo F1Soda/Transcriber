@@ -2,6 +2,7 @@
 from pydub import AudioSegment
 from utils import make_path_abs
 from logger import logger_
+import time
 
 class VAD:
     """
@@ -17,7 +18,7 @@ class VAD:
         Using silero vad for extracting time stamps with voice
         file_path should be absolute path
         """
-
+        start_time = time.time()
         import torch
         from silero_vad import load_silero_vad, get_speech_timestamps
 
@@ -43,6 +44,8 @@ class VAD:
                 file.write(f"{pair['start']} {pair['end']}\n")
 
         logger_.info(f"VAD results saved to: {output_txt_path}")
+        duration = time.time() - start_time
+        logger_.info(f"duration of get_voice_timestamps: {duration:.2f} seconds")
         return speech_timestamps
 
     @staticmethod
