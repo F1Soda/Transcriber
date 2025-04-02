@@ -2,8 +2,8 @@
 # It's hard to read without =)
 import textwrap
 
-input_file = 'Transcription/Lectures/20-02.txt'
-output_file = '20-02_with_new_lines.txt'
+input_file = '../Transcription/Lectures/20-02.txt'
+output_file = '../20-02_with_new_lines.txt'
 max_line_length = 120
 
 with open(input_file, 'r', encoding='utf-8') as f:

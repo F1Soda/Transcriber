@@ -12,8 +12,10 @@ import math
 import re
 import shutil
 from utils import make_path_abs
+from logger import logger_
 
 lock = threading.Lock()
+
 
 class Preprocessor:
     """
@@ -29,8 +31,8 @@ class Preprocessor:
     3) save chunks into folder ProcessedAudios/audio_name/parts
     4) merge chunks back
     """
+    den = None
     save_folder = make_path_abs('Audio/ProcessedAudios')
-    den = pretrained.dns64().eval()
     chunk_duration = 30
     sample_rate = 16000
     sample_width = 2
@@ -38,11 +40,23 @@ class Preprocessor:
     _audio = None
 
     @staticmethod
-    def convert_with_denoiser(file_path: str, out_dirpath: str = None, use_threading: bool = True, save_parts_after_merge: bool = False):
+    def load():
+        logger_.info("Preprocessor data loaded")
+        Preprocessor.den = pretrained.dns64().eval()
+
+    @staticmethod
+    def unload():
+        logger_.info("Preprocessor data unloaded")
+        Preprocessor.den = None
+
+    @staticmethod
+    def convert_with_denoiser(file_path: str, out_dirpath: str = None, use_threading: bool = False,
+                              save_parts_after_merge: bool = False, count_threads: int = 2):
         """
         out_dirpath, file_path should have absolute path!
+        Not recommended to use threading, because it's can slow down executing code(pydub with denoiser work bad together on CPU)
         """
-        print(f"start converting: {file_path}")
+        logger_.info(f"start converting: {file_path}. Use threading: {use_threading}")
         start_time = time.time()
         file_name = os.path.basename(file_path)
 
@@ -51,16 +65,16 @@ class Preprocessor:
             out_dirpath = os.path.join(Preprocessor.save_folder, os.path.splitext(file_name)[0])
             out_dirpath = make_path_abs(out_dirpath)
 
-        Path(out_dirpath).mkdir(parents=True, exist_ok=False)
+        Path(out_dirpath).mkdir(parents=True, exist_ok=True)
+        Path(os.path.join(out_dirpath, 'parts')).mkdir(parents=True, exist_ok=True)
 
         Preprocessor._audio = AudioSegment.from_file(file_path)
         duration_sec = float(mediainfo(file_path)['duration'])
         count_chunks = math.ceil(duration_sec / Preprocessor.chunk_duration)
         chunk_args = [(i, out_dirpath, file_path) for i in range(count_chunks)]
 
-
         if use_threading:
-            with ThreadPoolExecutor(max_workers=10) as executor:
+            with ThreadPoolExecutor(max_workers=count_threads) as executor:
                 futures = [executor.submit(Preprocessor._process_chunk, *args) for args in chunk_args]
                 for future in futures:
                     future.result()
@@ -70,11 +84,10 @@ class Preprocessor:
 
         merged_path = Preprocessor.merge(os.path.join(out_dirpath, 'parts'), save_parts_after_merge)
 
-        print(f"Done! Time: {time.time() - start_time}")
+        logger_.info(f"Done convert_with_denoiser! Time: {time.time() - start_time}")
         Preprocessor._audio = None
 
         return merged_path
-
 
     @staticmethod
     def merge(parts_dir: str, save_parts_after_merge):
@@ -102,7 +115,6 @@ class Preprocessor:
         shutil.rmtree(parts_dir)
         return save_path
 
-
     @staticmethod
     def _process_chunk(index, output_dir: str, file_path: str):
         """
@@ -113,7 +125,6 @@ class Preprocessor:
             chunk = Preprocessor._load_partial(start_second=index * Preprocessor.chunk_duration,
                                                duration=Preprocessor.chunk_duration)
 
-
             chunk = chunk.set_frame_rate(Preprocessor.sample_rate).set_channels(Preprocessor.channels).set_sample_width(
                 Preprocessor.sample_width)
 
@@ -122,9 +133,9 @@ class Preprocessor:
             chunk = effects.compress_dynamic_range(
                 chunk,
                 threshold=-25.0,  # start compressing quieter sounds
-                ratio=3.0,        # gentle compression
-                attack=10.0,      # slightly slower to avoid "pumping"
-                release=100.0     # smooth fade-out of compression
+                ratio=3.0,  # gentle compression
+                attack=10.0,  # slightly slower to avoid "pumping"
+                release=100.0  # smooth fade-out of compression
             )
 
             samples = torch.tensor(chunk.get_array_of_samples(), dtype=torch.float32) / 32768.0
@@ -148,10 +159,11 @@ class Preprocessor:
             end_time = time.time()
 
             with lock:
-                print(f"Processed chunk {index}. Duration: {end_time - start_time}")
+                logger_.info(f"Processed chunk {index}. Duration: {end_time - start_time}")
         except Exception as e:
-            print(f"Error processing {index}: {e}")
-            traceback.print_exc()
+            logger_.error(f"Error processing {index}: {e}")
+            logger_.error("Traceback:\n%s", traceback.format_exc())
+            raise e
 
     @staticmethod
     def _normalize_audio(audio_segment, target_dBFS=-20.0, max_gain=20.0):

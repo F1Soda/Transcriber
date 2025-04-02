@@ -1,9 +1,7 @@
 ﻿import os
 from pydub import AudioSegment
-import torch
-from silero_vad import load_silero_vad, get_speech_timestamps
-from Audio.AudioHandler.preprocessor import Preprocessor
 from utils import make_path_abs
+from logger import logger_
 
 class VAD:
     """
@@ -19,6 +17,11 @@ class VAD:
         Using silero vad for extracting time stamps with voice
         file_path should be absolute path
         """
+
+        import torch
+        from silero_vad import load_silero_vad, get_speech_timestamps
+
+
         # loading
         preprocessed_audio = AudioSegment.from_file(file_path)
         samples = preprocessed_audio.get_array_of_samples()
@@ -33,13 +36,13 @@ class VAD:
                                                   min_silence_duration_ms=VAD.min_silence_duration_ms)
 
         # saving
-        filename = os.path.splitext(os.path.basename(file_path))[0]
+        filename = os.path.basename(os.path.dirname(file_path))
         output_txt_path = os.path.join(VAD.save_folder, f"{filename}.txt")
         with open(output_txt_path, 'w') as file:
             for pair in speech_timestamps:
                 file.write(f"{pair['start']} {pair['end']}\n")
 
-        print(f"VAD results saved to: {output_txt_path}")
+        logger_.info(f"VAD results saved to: {output_txt_path}")
         return speech_timestamps
 
     @staticmethod
@@ -48,6 +51,9 @@ class VAD:
         Slice audio by segments and then merge it. By default used for testing segmentation timestamps by silero vad
         segments_path, audiofile_path should be absolute path
         """
+
+        from Audio.AudioHandler.preprocessor import Preprocessor
+
         # loading timestamps
         speech_timestamps = VAD.load_speach_timestamps(segments_path)
 
@@ -61,7 +67,7 @@ class VAD:
             end_ms = int(ts['end'] * 1000)
             segment = preprocessed_audio[start_ms:end_ms]
             speech_audio += segment
-            print(f"Added speech segment {i}: {ts['start']}s - {ts['end']}s")
+            logger_.info(f"Added speech segment {i}: {ts['start']}s - {ts['end']}s")
 
         # saving
         if output_path is None:

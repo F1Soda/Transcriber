@@ -6,6 +6,7 @@ import time
 from transformers import WhisperForConditionalGeneration, WhisperProcessor, pipeline
 from Audio.AudioHandler.preprocessor import Preprocessor
 from utils import make_path_abs
+from logger import logger_
 
 class Transcriber:
     """
@@ -20,7 +21,7 @@ class Transcriber:
     processor = None
 
     @staticmethod
-    def load(batch_size: int = 16):
+    def load(batch_size: int = 8):
         """
         batch_size: count of parts, that will be processed on GPU together. Change it for better performance
         """
@@ -50,29 +51,30 @@ class Transcriber:
             batch_size=batch_size,
             torch_dtype=Transcriber.torch_dtype
         )
-        print(f"Model {model_id} was loaded")
+        logger_.info(f"Transcriber data loaded")
 
     @staticmethod
     def unload():
         """
         Unloads the model and pipeline to free memory.
         """
-        print("Unloading Whisper model and ASR pipeline...")
+        logger_.info("Unloading Whisper model and ASR pipeline...")
         # I'm not sure about unloading processor. Maybe I should save it, but now it's like this
         Transcriber.asr_pipeline = None
         Transcriber.processor = None
         Transcriber.whisper = None
         torch.cuda.empty_cache()
+        logger_.info(f"Transcriber data unloaded")
 
     @staticmethod
     def speech_to_text(audio_path, speech_timestamps, output_path: str = None):
         """
         audio_path, output_path should be absolute path
         """
-        print(f"Run speech_to_text on {audio_path}")
+        logger_.info(f"Run speech_to_text on {audio_path}")
         start_time = time.time()
         if not output_path:
-            filename = os.path.splitext(os.path.basename(audio_path))[0]
+            filename = os.path.basename(os.path.dirname(audio_path))
             output_path = os.path.join(Transcriber.save_dir, filename) + '.txt'
 
         waveforms, new_speech_timestamps = Transcriber._get_waveforms(audio_path, speech_timestamps)
@@ -83,6 +85,7 @@ class Transcriber:
         )
 
         # Transcribe and save
+
         with open(output_path, "w", encoding="utf-8") as out_file:
             for idx, (asr, pair) in enumerate(zip(results,new_speech_timestamps)):
                 time_offset = pair['start']
@@ -96,10 +99,11 @@ class Transcriber:
                 timestamp_str = f"[{minutes:02}:{seconds:02}]"
                 chunk_number = '{:>3}'.format(idx)
                 res = f"{chunk_number} {timestamp_str} {text}\n"
-                print(res, end="")
                 out_file.write(res)
+                logger_.info(res)
 
-        print(f"Transcript saved to: {output_path}. Duration: {time.time() - start_time}")
+
+        logger_.info(f"Transcript saved to: {output_path}. Duration: {time.time() - start_time}")
 
     @staticmethod
     def _get_waveforms(audio_path, speech_timestamps):
