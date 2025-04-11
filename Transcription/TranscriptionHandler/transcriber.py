@@ -5,9 +5,9 @@ import soundfile as sf
 import time
 from transformers import WhisperForConditionalGeneration, WhisperProcessor, pipeline
 from Audio.AudioHandler.preprocessor import Preprocessor
-from utils import make_path_abs
-from logger import logger_
-
+from Tools.utils import make_path_abs
+from Tools.logger import logger_
+import gc
 class Transcriber:
     """
     Class interface above whisper for getting transcription from preprocessed audio
@@ -30,6 +30,11 @@ class Transcriber:
         elif torch.backends.mps.is_available():
             Transcriber.device = 'mps'
             setattr(torch.distributed, "is_initialized", lambda: False)
+
+        Transcriber.torch_dtype = torch.float32  # on CPU
+        if torch.cuda.is_available():
+            Transcriber.torch_dtype = torch.bfloat16
+
         Transcriber.device = torch.device(Transcriber.device)
 
         model_id = "antony66/whisper-large-v3-russian"
@@ -59,12 +64,28 @@ class Transcriber:
         Unloads the model and pipeline to free memory.
         """
         logger_.info("Unloading Whisper model and ASR pipeline...")
-        # I'm not sure about unloading processor. Maybe I should save it, but now it's like this
+        del Transcriber.asr_pipeline
+        del Transcriber.processor
+        del Transcriber.whisper
         Transcriber.asr_pipeline = None
         Transcriber.processor = None
         Transcriber.whisper = None
         torch.cuda.empty_cache()
+        import gc
+        gc.collect()
         logger_.info(f"Transcriber data unloaded")
+
+    @staticmethod
+    def handle(audio_path, speech_timestamps, output_path: str = None):
+        try:
+            # Load Whisper
+            Transcriber.load(batch_size=4)
+            Transcriber.speech_to_text(audio_path, speech_timestamps, output_path)
+            Transcriber.unload()
+        except Exception as e:
+            # unload denoiser
+            Transcriber.unload()
+            raise e
 
     @staticmethod
     def speech_to_text(audio_path, speech_timestamps, output_path: str = None):
@@ -79,13 +100,21 @@ class Transcriber:
 
         waveforms, new_speech_timestamps = Transcriber._get_waveforms(audio_path, speech_timestamps)
 
-        results = Transcriber.asr_pipeline(
-            waveforms,
-            generate_kwargs={"language": "russian"},
-        )
+        results = []
+        for waveform in waveforms:
+            with torch.inference_mode():
+                res = Transcriber.asr_pipeline(
+                    waveform,
+                    generate_kwargs={"language": "russian"},
+                )
+            results.append(res)
+            del res
+            gc.collect()
+            torch.cuda.empty_cache()
+
+        del waveforms
 
         # Transcribe and save
-
         with open(output_path, "w", encoding="utf-8") as out_file:
             for idx, (asr, pair) in enumerate(zip(results,new_speech_timestamps)):
                 time_offset = pair['start']
@@ -101,7 +130,6 @@ class Transcriber:
                 res = f"{chunk_number} {timestamp_str} {text}\n"
                 out_file.write(res)
                 logger_.info(res)
-
 
         logger_.info(f"Transcript saved to: {output_path}. Duration: {time.time() - start_time}")
 

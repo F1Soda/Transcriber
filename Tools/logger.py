@@ -1,7 +1,7 @@
 ﻿from datetime import datetime
 import logging
 import os
-import utils
+import Tools.utils as utils
 
 logs_dir = utils.make_path_abs("logs")
 

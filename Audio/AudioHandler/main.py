@@ -1,9 +1,9 @@
 ﻿from preprocessor import Preprocessor
-from utils import make_path_abs
-import os
+from Tools.utils import make_path_abs
+
 
 def main(file_path):
-    Preprocessor.convert_with_denoiser(file_path)
+    Preprocessor.handle(file_path)
 
 
 if __name__ == '__main__':

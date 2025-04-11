@@ -11,8 +11,9 @@ import traceback
 import math
 import re
 import shutil
-from utils import make_path_abs
-from logger import logger_
+from Tools.utils import make_path_abs
+from Tools.logger import logger_
+import gc
 
 lock = threading.Lock()
 
@@ -47,31 +48,62 @@ class Preprocessor:
     @staticmethod
     def unload():
         logger_.info("Preprocessor data unloaded")
-        Preprocessor.den = None
+        del Preprocessor.den
+        del Preprocessor._audio
+        gc.collect()
+
 
     @staticmethod
-    def convert_with_denoiser(file_path: str, out_dirpath: str = None, use_threading: bool = False,
-                              save_parts_after_merge: bool = False, count_threads: int = 2):
+    def handle(file_path: str, out_dirpath: str = None, use_threading: bool = False,
+               save_parts_after_merge: bool = False, count_threads: int = 2):
         """
         out_dirpath, file_path should have absolute path!
         Not recommended to use threading, because it's can slow down executing code(pydub with denoiser work bad together on CPU)
         """
-        logger_.info(f"start converting: {file_path}. Use threading: {use_threading}")
-        start_time = time.time()
-        file_name = os.path.basename(file_path)
+        try:
+            logger_.info(f"start converting: {file_path}. Use threading: {use_threading}")
+            start_time = time.time()
+            file_name = os.path.basename(file_path)
 
-        # out_dirpath should have absolute path!
-        if out_dirpath is None:
-            out_dirpath = os.path.join(Preprocessor.save_folder, os.path.splitext(file_name)[0])
-            out_dirpath = make_path_abs(out_dirpath)
+            # out_dirpath should have absolute path!
+            if out_dirpath is None:
+                out_dirpath = os.path.join(Preprocessor.save_folder, os.path.splitext(file_name)[0])
+                out_dirpath = make_path_abs(out_dirpath)
 
-        Path(out_dirpath).mkdir(parents=True, exist_ok=True)
-        Path(os.path.join(out_dirpath, 'parts')).mkdir(parents=True, exist_ok=True)
+            if not os.path.isdir(out_dirpath):
+                Path(out_dirpath).mkdir(parents=True, exist_ok=True)
+            elif os.path.isfile(os.path.join(out_dirpath, 'processed.wav')):
+                logger_.info(f"found already preprocessed audio. Go to next step.")
+                return os.path.join(out_dirpath, 'processed.wav')
 
+            if not os.path.isdir(os.path.join(out_dirpath, 'parts')):
+                Path(os.path.join(out_dirpath, 'parts')).mkdir(parents=True, exist_ok=True)
+
+            # load denoiser
+            Preprocessor.load()
+            Preprocessor.preprocess(file_path, out_dirpath, use_threading, count_threads)
+
+            merged_path = Preprocessor.merge(os.path.join(out_dirpath, 'parts'), save_parts_after_merge)
+
+            logger_.info(f"Done convert_with_denoiser! Time: {time.time() - start_time}")
+
+            # unload denoiser
+            Preprocessor.unload()
+
+            return merged_path
+        except Exception as e:
+            # unload denoiser
+            Preprocessor.unload()
+            raise e
+
+
+    @staticmethod
+    def preprocess(file_path: str, out_dirpath: str = None, use_threading: bool = False, count_threads: int = 2):
         Preprocessor._audio = AudioSegment.from_file(file_path)
         duration_sec = float(mediainfo(file_path)['duration'])
         count_chunks = math.ceil(duration_sec / Preprocessor.chunk_duration)
         chunk_args = [(i, out_dirpath, file_path) for i in range(count_chunks)]
+        file_name = os.path.splitext(os.path.basename(file_path))[0]
 
         if use_threading:
             with ThreadPoolExecutor(max_workers=count_threads) as executor:
@@ -80,14 +112,10 @@ class Preprocessor:
                     future.result()
         else:
             for i in range(0, count_chunks):
-                Preprocessor._process_chunk(*(chunk_args[i]))
-
-        merged_path = Preprocessor.merge(os.path.join(out_dirpath, 'parts'), save_parts_after_merge)
-
-        logger_.info(f"Done convert_with_denoiser! Time: {time.time() - start_time}")
-        Preprocessor._audio = None
-
-        return merged_path
+                if not os.path.isfile(os.path.join(out_dirpath, 'parts', f'{file_name}-part{i}.wav')):
+                    Preprocessor._process_chunk(*(chunk_args[i]))
+                else:
+                    logger_.info(f"{i} chunk already processed. Go to next")
 
     @staticmethod
     def merge(parts_dir: str, save_parts_after_merge):

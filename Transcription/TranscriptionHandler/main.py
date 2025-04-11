@@ -1,6 +1,6 @@
 ﻿from transcriber import Transcriber
 from Audio.AudioHandler.vad import VAD
-from utils import make_path_abs
+from Tools.utils import make_path_abs
 
 def main(chunks_folder, speech_timestamps):
     Transcriber.speech_to_text(chunks_folder, speech_timestamps)

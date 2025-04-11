@@ -2,7 +2,15 @@
 <module type="PYTHON_MODULE" version="4">
   <component name="NewModuleRootManager">
     <content url="file://$MODULE_DIR$">
+      <excludeFolder url="file://$MODULE_DIR$/.312venv/Include" />
+      <excludeFolder url="file://$MODULE_DIR$/.312venv/Lib" />
+      <excludeFolder url="file://$MODULE_DIR$/.312venv/Scripts" />
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
+      <excludeFolder url="file://$MODULE_DIR$/Audio/ProcessedAudios" />
+      <excludeFolder url="file://$MODULE_DIR$/Audio/ProcessedAudios/15-12" />
+      <excludeFolder url="file://$MODULE_DIR$/Audio/ProcessedAudios/15-12-test" />
+      <excludeFolder url="file://$MODULE_DIR$/Audio/ProcessedAudios/20-02" />
+      <excludeFolder url="file://$MODULE_DIR$/Audio/Segments" />
     </content>
     <orderEntry type="jdk" jdkName="Python 3.12 virtualenv at D:\PycharmProjects\Findex\.312venv" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />

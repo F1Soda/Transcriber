@@ -184,7 +184,9 @@ fabric.properties
 # idea folder, uncomment if you don't need it
 # .idea
 
-Audio/RawAudios
+Audio/RawAudios/*
+!Audio/RawAudios/Test/
+
 Audio/ProcessedAudios
 Audio/Segments
 Transcription/Lectures

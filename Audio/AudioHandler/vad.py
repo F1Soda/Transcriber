@@ -1,8 +1,10 @@
 ﻿import os
 from pydub import AudioSegment
-from utils import make_path_abs
-from logger import logger_
+from Tools.utils import make_path_abs
+from Tools.logger import logger_
 import time
+import gc
+import torch
 
 class VAD:
     """
@@ -46,6 +48,13 @@ class VAD:
         logger_.info(f"VAD results saved to: {output_txt_path}")
         duration = time.time() - start_time
         logger_.info(f"duration of get_voice_timestamps: {duration:.2f} seconds")
+
+        del samples_tensor
+        del model
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
         return speech_timestamps
 
     @staticmethod
@@ -78,6 +87,9 @@ class VAD:
             output_path = Preprocessor.save_folder + f'/{file_name}/{file_name}_voice.wav'
 
         speech_audio.export(output_path, format='wav')
+
+        del preprocessed_audio
+        gc.collect()
 
     @staticmethod
     def load_speach_timestamps(file_path):
