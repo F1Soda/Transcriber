@@ -48,7 +48,7 @@ def main(lectures):
 
 # audios on witch will extracting transcription. Add only name of audios in folder Audio/RawAudios.
 # Example: lectures = ['20-02.mp3']
-lectures = ['05-03.mp3','06-03.mp3','21-02.mp3','28-02.mp3']
+lectures = ['06-03.mp3','21-02.mp3','28-02.mp3']
 
 
 if __name__ == "__main__":
