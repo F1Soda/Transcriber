@@ -25,11 +25,11 @@ def process_lecture(lecture, profile):
         processed_file_path = Preprocessor.handle(raw_file_path, preprocessor_profile=profile)
 
         # Then we applying Silero VAD for getting timestamps with voices
-        speech_timestamps = VAD.get_voice_timestamps(processed_file_path)
+        speech_timestamps = VAD.get_voice_timestamps(processed_file_path, stt_profile=profile)
 
         # After that we start transcription actions:
         # Starting logic for transcription(For more details look inside class)
-        Transcriber.handle(processed_file_path, speech_timestamps)
+        Transcriber.handle(processed_file_path, speech_timestamps, preprocessor_profile=profile)
 
         end_time = time.time()
         duration = end_time - start_time
@@ -50,7 +50,7 @@ def main(lectures: list[str], profile: BaseProfile):
 
 # audios on witch will extracting transcription. Add only name of audios in folder Audio/RawAudios.
 # Example: lectures = ['20-02.mp3']
-lectures = []
+lectures = ["21-02.mp3", "13-03.mp3"]
 
 
 if __name__ == "__main__":
@@ -58,7 +58,7 @@ if __name__ == "__main__":
         if '--test' in sys.argv:
             test()
         else:
-            main(lectures)
+            main(lectures, CustomProfile2(no_skip=True))
     except Exception as e:
         logger_.error(f"Error: {e}")
         logger_.error("Traceback:\n%s", traceback.format_exc())

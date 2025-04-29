@@ -2,8 +2,8 @@
 # It's hard to read without =)
 import textwrap
 
-input_file = r'D:\PycharmProjects\Findex\Transcription\Lectures\16-04.txt'
-output_file = '../test.txt'
+input_file = r'D:\PycharmProjects\Findex\Transcription\Lectures\21-02-15minute.txt'
+output_file = '../test3040last.txt'
 max_line_length = 120
 
 with open(input_file, 'r', encoding='utf-8') as f:

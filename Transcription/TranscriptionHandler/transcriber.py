@@ -121,6 +121,7 @@ class Transcriber:
             gc.collect()
             torch.cuda.empty_cache()
 
+
         del waveforms
 
         # Transcribe and save
@@ -137,7 +138,7 @@ class Transcriber:
                 timestamp_str = f"[{minutes:02}:{seconds:02}]"
                 chunk_number = '{:>3}'.format(idx)
                 duration = '{:>3}'.format(int(duration))
-                res = f"{chunk_number} {timestamp_str} {duration} {text}"
+                res = f"{chunk_number} {timestamp_str} {duration} {text}\n"
                 out_file.write(res)
                 logger_.info(res)
 
@@ -152,7 +153,7 @@ class Transcriber:
         # how much seconds capture before start chunk
         padding = stt_profile.get_waveforms["padding"]
         # maximum length of concatenated waveform in seconds
-        max_duration = stt_profile.chunk_duration - 1
+        max_duration = stt_profile.chunk_duration + 10
         # seconds of silence before and after each chunk
         silence_pad = stt_profile.get_waveforms["silence_pad"]
         # seconds of silence before and after each sentence in chunk

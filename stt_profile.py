@@ -80,18 +80,12 @@ class CustomProfile2(BaseProfile):
         self.make_denoise = False
         self.normalization_kwargs = None
         self.compress_dynamic_range_kwargs = None
-        self.no_skip = False
+        self.no_skip = no_skip
 
-        self.batch_size = 6
+        self.batch_size = 12
         self.chunk_duration = 30
 
-        self.get_speech_timestamps_kwargs['threshold'] = 0.4
+        self.get_speech_timestamps_kwargs['threshold'] = 0.3
         self.get_speech_timestamps_kwargs['min_speech_duration_ms'] = 2000
         self.get_speech_timestamps_kwargs['min_silence_duration_ms'] = 750
-
-        # self.get_waveforms = {
-        #     "padding": 0.5,
-        #     "silence_pad": 1.5,
-        #     "silence_pad_between_sentence": 1.5
-        # }
 
