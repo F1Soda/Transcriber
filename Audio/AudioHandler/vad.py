@@ -4,18 +4,17 @@ from Tools.utils import make_path_abs
 from Tools.logger import logger_
 import time
 import gc
-import torch
+from stt_profile import *
+
 
 class VAD:
     """
     Class for extracting timestamps with voice in audio
     """
-    min_speech_duration_ms=1000
-    min_silence_duration_ms=1000
     save_folder = make_path_abs('Audio/Segments')
 
     @staticmethod
-    def get_voice_timestamps(file_path):
+    def get_voice_timestamps(file_path, stt_profile: BaseProfile):
         """
         Using silero vad for extracting time stamps with voice
         file_path should be absolute path
@@ -24,7 +23,7 @@ class VAD:
         import torch
         from silero_vad import load_silero_vad, get_speech_timestamps
 
-
+        logger_.info(f"start vad: {file_path}.")
         # loading
         preprocessed_audio = AudioSegment.from_file(file_path)
         samples = preprocessed_audio.get_array_of_samples()
@@ -33,10 +32,12 @@ class VAD:
 
         # using silero
         model = load_silero_vad()
-        speech_timestamps = get_speech_timestamps(samples_tensor, model, return_seconds=True,
-                                                  threshold=0.3,
-                                                  min_speech_duration_ms=VAD.min_speech_duration_ms,
-                                                  min_silence_duration_ms=VAD.min_silence_duration_ms)
+        speech_timestamps = get_speech_timestamps(
+            samples_tensor, model, return_seconds=True,
+            threshold=stt_profile.get_speech_timestamps_kwargs["threshold"],
+            min_speech_duration_ms=stt_profile.get_speech_timestamps_kwargs["min_speech_duration_ms"],
+            min_silence_duration_ms=stt_profile.get_speech_timestamps_kwargs["min_silence_duration_ms"]
+        )
 
         # saving
         filename = os.path.basename(os.path.dirname(file_path))
@@ -58,7 +59,7 @@ class VAD:
         return speech_timestamps
 
     @staticmethod
-    def slice_by_segments_and_merge(segments_path, audiofile_path, output_path=None):
+    def slice_by_segments_and_merge(audiofile_path, output_path=None, segments_path=None, speech_timestamps=None):
         """
         Slice audio by segments and then merge it. By default used for testing segmentation timestamps by silero vad
         segments_path, audiofile_path should be absolute path
@@ -66,8 +67,9 @@ class VAD:
 
         from Audio.AudioHandler.preprocessor import Preprocessor
 
-        # loading timestamps
-        speech_timestamps = VAD.load_speach_timestamps(segments_path)
+        if speech_timestamps is None:
+            # loading timestamps
+            speech_timestamps = VAD.load_speach_timestamps(segments_path)
 
         # loading audio
         preprocessed_audio = AudioSegment.from_file(audiofile_path)
@@ -83,10 +85,12 @@ class VAD:
 
         # saving
         if output_path is None:
-            file_name = os.path.splitext(os.path.basename(segments_path))[0]
+            file_name = os.path.splitext(os.path.basename(audiofile_path))[0]
             output_path = Preprocessor.save_folder + f'/{file_name}/{file_name}_voice.wav'
 
         speech_audio.export(output_path, format='wav')
+
+        logger_.info("slice_by_segments_and_merge saved merged audio to: " + output_path)
 
         del preprocessed_audio
         gc.collect()

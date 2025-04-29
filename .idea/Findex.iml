@@ -11,6 +11,7 @@
       <excludeFolder url="file://$MODULE_DIR$/Audio/ProcessedAudios/15-12-test" />
       <excludeFolder url="file://$MODULE_DIR$/Audio/ProcessedAudios/20-02" />
       <excludeFolder url="file://$MODULE_DIR$/Audio/Segments" />
+      <excludeFolder url="file://$MODULE_DIR$/vllm-env" />
     </content>
     <orderEntry type="jdk" jdkName="Python 3.12 virtualenv at D:\PycharmProjects\Findex\.312venv" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />

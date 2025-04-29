@@ -8,6 +8,9 @@ from Audio.AudioHandler.preprocessor import Preprocessor
 from Tools.utils import make_path_abs
 from Tools.logger import logger_
 import gc
+from stt_profile import *
+
+
 class Transcriber:
     """
     Class interface above whisper for getting transcription from preprocessed audio
@@ -21,7 +24,7 @@ class Transcriber:
     processor = None
 
     @staticmethod
-    def load(batch_size: int = 8):
+    def load(stt_profile: BaseProfile):
         """
         batch_size: count of parts, that will be processed on GPU together. Change it for better performance
         """
@@ -51,9 +54,9 @@ class Transcriber:
             model=Transcriber.whisper,
             tokenizer=Transcriber.processor.tokenizer,
             feature_extractor=Transcriber.processor.feature_extractor,
-            chunk_length_s=Preprocessor.chunk_duration,
+            chunk_length_s=stt_profile.chunk_duration,
             stride_length_s=5,
-            batch_size=batch_size,
+            batch_size=stt_profile.batch_size,
             torch_dtype=Transcriber.torch_dtype
         )
         logger_.info(f"Transcriber data loaded")
@@ -76,11 +79,15 @@ class Transcriber:
         logger_.info(f"Transcriber data unloaded")
 
     @staticmethod
-    def handle(audio_path, speech_timestamps, output_path: str = None):
+    def handle(audio_path, speech_timestamps, output_path: str = None, preprocessor_profile: BaseProfile = None):
         try:
+            if preprocessor_profile is None:
+                preprocessor_profile = BaseProfile()
+
             # Load Whisper
-            Transcriber.load(batch_size=4)
-            Transcriber.speech_to_text(audio_path, speech_timestamps, output_path)
+            Transcriber.load(preprocessor_profile)
+
+            Transcriber.speech_to_text(audio_path, speech_timestamps, preprocessor_profile, output_path)
             Transcriber.unload()
         except Exception as e:
             # unload denoiser
@@ -88,7 +95,7 @@ class Transcriber:
             raise e
 
     @staticmethod
-    def speech_to_text(audio_path, speech_timestamps, output_path: str = None):
+    def speech_to_text(audio_path, speech_timestamps, stt_profile: BaseProfile, output_path: str = None):
         """
         audio_path, output_path should be absolute path
         """
@@ -98,7 +105,9 @@ class Transcriber:
             filename = os.path.basename(os.path.dirname(audio_path))
             output_path = os.path.join(Transcriber.save_dir, filename) + '.txt'
 
-        waveforms, new_speech_timestamps = Transcriber._get_waveforms(audio_path, speech_timestamps)
+        waveforms, new_speech_timestamps, real_chunk_duration = Transcriber._get_waveforms(audio_path,
+                                                                                           speech_timestamps,
+                                                                                           stt_profile)
 
         results = []
         for waveform in waveforms:
@@ -116,7 +125,7 @@ class Transcriber:
 
         # Transcribe and save
         with open(output_path, "w", encoding="utf-8") as out_file:
-            for idx, (asr, pair) in enumerate(zip(results,new_speech_timestamps)):
+            for idx, (asr, pair, duration) in enumerate(zip(results, new_speech_timestamps, real_chunk_duration)):
                 time_offset = pair['start']
                 text = asr.get("text")
                 if not text:
@@ -127,24 +136,31 @@ class Transcriber:
                 seconds = int(timestamp_sec % 60)
                 timestamp_str = f"[{minutes:02}:{seconds:02}]"
                 chunk_number = '{:>3}'.format(idx)
-                res = f"{chunk_number} {timestamp_str} {text}\n"
+                duration = '{:>3}'.format(int(duration))
+                res = f"{chunk_number} {timestamp_str} {duration} {text}"
                 out_file.write(res)
                 logger_.info(res)
 
         logger_.info(f"Transcript saved to: {output_path}. Duration: {time.time() - start_time}")
 
     @staticmethod
-    def _get_waveforms(audio_path, speech_timestamps):
+    def _get_waveforms(audio_path, speech_timestamps, stt_profile):
         """
         audio_path should be absolute path
         """
-        padding = 0.8 # how much seconds add to start from origin audio to each chunk
-        max_duration = 30.0  # maximum length of concatenated waveform in seconds
-        silence_pad = 1.0  # seconds of silence before and after each chunk
-        silence_pad_in_one_chunk = 0.8  # seconds of silence before and after each chunk
+        # TODO: Rename all that shit to normal names and write better description
+        # how much seconds capture before start chunk
+        padding = stt_profile.get_waveforms["padding"]
+        # maximum length of concatenated waveform in seconds
+        max_duration = stt_profile.chunk_duration - 1
+        # seconds of silence before and after each chunk
+        silence_pad = stt_profile.get_waveforms["silence_pad"]
+        # seconds of silence before and after each sentence in chunk
+        silence_pad_between_sentence = stt_profile.get_waveforms["silence_pad_between_sentence"]
 
         combined_waveforms = []
         combined_timestamps = []
+        real_chunk_duration = []
 
         with sf.SoundFile(audio_path) as f:
             sample_rate = f.samplerate
@@ -168,6 +184,9 @@ class Transcriber:
                             'start': speech_timestamps[chunk_start_index]['start'],
                             'end': speech_timestamps[i - 1]['end']
                         })
+
+                        real_chunk_duration.append(chunk_duration)
+
                         chunk = []
                         chunk_duration = 0.0
 
@@ -178,7 +197,7 @@ class Transcriber:
                 f.seek(start_frame)
                 waveform = f.read(end_frame - start_frame)
 
-                silence = np.zeros(int(sample_rate * silence_pad_in_one_chunk))
+                silence = np.zeros(int(sample_rate * silence_pad_between_sentence))
                 waveform = np.concatenate([silence, waveform, silence])
 
                 if not chunk:
@@ -196,4 +215,6 @@ class Transcriber:
                     'end': speech_timestamps[-1]['end']
                 })
 
-        return combined_waveforms, combined_timestamps
+                real_chunk_duration.append(chunk_duration)
+
+        return combined_waveforms, combined_timestamps, real_chunk_duration
